@@ -6,7 +6,7 @@ LDFLAGS := -lm
 
 TARGET := mqtt-client
 
-OBJ := lib/mqtt.o src/client.o
+OBJ := lib/mqtt.o lib/connack.o src/client.o 
 
 .PHONY: all clean
 
