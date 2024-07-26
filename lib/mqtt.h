@@ -103,6 +103,17 @@ void mqtt_client_disconnect(mqtt_client_t *client);
 void mqtt_client_subscribe(mqtt_client_t *client, char *topic);
 
 /**
+ * Publish a message to a topic.
+ *
+ * @param client The MQTT client
+ * @param topic The topic to publish to
+ * @param message The message to publish
+ * @param qos The QoS level
+ */
+void mqtt_client_publish(mqtt_client_t *client, char *topic, char *message,
+                         unsigned char qos);
+
+/**
  * Destroy a MQTT client.
  *
  * @param client The MQTT client to destroy

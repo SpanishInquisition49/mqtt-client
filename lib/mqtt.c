@@ -223,7 +223,20 @@ void mqtt_client_disconnect(mqtt_client_t *client) {
   mqtt_fixed_header_t header;
   header.packet_type = PACKET_TYPE_DISCONNECT >> 4;
   header.flags = 0x00;
-  header.remaining_length = 0;
+  header.remaining_length = 1;
+  // create the DISCONNECT variable header
+  uint8_t variable_header[10];
+  int var_header_length = 0;
+  // disconnect reason code
+  variable_header[var_header_length++] = 0x00;
+  // Build the packet
+  uint8_t packet[1024];
+  int packet_length = 0;
+  create_mqtt_fixed_header(header, header.remaining_length, packet,
+                           &packet_length);
+  memcpy(packet + packet_length, variable_header, var_header_length);
+  dprintf(2, "DISCONNECT packet:\n");
+  mqtt_print_packet(packet, packet_length + var_header_length);
   // Send the DISCONNECT packet
   write(client->socket, &header, sizeof(header));
   close(client->socket);
@@ -235,8 +248,84 @@ void mqtt_client_subscribe(mqtt_client_t *client, char *topic) {
   header.packet_type = PACKET_TYPE_SUBSCRIBE >> 4;
   header.flags = 0x02;
   header.remaining_length = 0;
+  // create the SUBSCRIBE variable header
+  uint8_t variable_header[10];
+  int var_header_length = 0;
+  uint16_t packet_id = 1;
+  variable_header[var_header_length++] = packet_id >> 8;
+  variable_header[var_header_length++] = packet_id & 0xFF;
+  // create the SUBSCRIBE payload
+  uint8_t payload[1024];
+  int payload_length = 0;
+  payload_length += write_string(payload + payload_length, topic);
+  payload[payload_length++] = 0x00; // QoS
+  // Build the packet
+  header.remaining_length = var_header_length + payload_length;
+  uint8_t packet[1024];
+  int packet_length = 0;
+  create_mqtt_fixed_header(header, header.remaining_length, packet,
+                           &packet_length);
+  memcpy(packet + packet_length, variable_header, var_header_length);
+  memcpy(packet + packet_length + var_header_length, payload, payload_length);
+  dprintf(2, "SUBSCRIBE packet:\n");
+  mqtt_print_packet(packet, packet_length + var_header_length + payload_length);
   // Send the SUBSCRIBE packet
-  write(client->socket, &header, sizeof(header));
+  write(client->socket, packet,
+        packet_length + var_header_length + payload_length);
+  // Read the SUBACK packet
+  mqtt_fixed_header_t suback_header = mqtt_read_fixed_header(client);
+  unsigned char suback_variable_header[suback_header.remaining_length];
+  dprintf(2, "SUBACK packet:\n");
+  read(client->socket, suback_variable_header, suback_header.remaining_length);
+  mqtt_print_packet((unsigned char *)&suback_header, sizeof(suback_header));
+  mqtt_print_packet(suback_variable_header, suback_header.remaining_length);
+}
+
+void mqtt_client_publish(mqtt_client_t *client, char *topic, char *message,
+                         unsigned char qos) {
+  // Create the PUBLISH packet
+  // Fixed header
+  mqtt_fixed_header_t header;
+  header.packet_type = PACKET_TYPE_PUBLISH >> 4;
+  header.flags = 0x00;
+  header.remaining_length = 0;
+  // Variable header
+  uint8_t variable_header[10];
+  int var_header_length = 0;
+  var_header_length += write_string(variable_header + var_header_length, topic);
+  if (qos > 0) {
+    // Packet id
+    uint16_t packet_id = 1;
+    variable_header[var_header_length++] = packet_id >> 8;
+    variable_header[var_header_length++] = packet_id & 0xFF;
+  }
+  // Payload
+  uint8_t payload[1024];
+  int payload_length = 0;
+  payload_length += write_string(payload + payload_length, message);
+  // Build the packet
+  header.remaining_length = var_header_length + payload_length;
+  uint8_t packet[1024];
+  int packet_length = 0;
+  create_mqtt_fixed_header(header, header.remaining_length, packet,
+                           &packet_length);
+  memcpy(packet + packet_length, variable_header, var_header_length);
+  memcpy(packet + packet_length + var_header_length, payload, payload_length);
+  dprintf(2, "PUBLISH packet:\n");
+  mqtt_print_packet(packet, packet_length + var_header_length + payload_length);
+  // Send the PUBLISH packet
+  write(client->socket, packet,
+        packet_length + var_header_length + payload_length);
+  if (qos == 0) {
+    return;
+  }
+  // Read the PUBACK packet
+  mqtt_fixed_header_t puback_header = mqtt_read_fixed_header(client);
+  unsigned char puback_variable_header[puback_header.remaining_length];
+  dprintf(2, "PUBACK packet:\n");
+  read(client->socket, puback_variable_header, puback_header.remaining_length);
+  mqtt_print_packet((unsigned char *)&puback_header, sizeof(puback_header));
+  mqtt_print_packet(puback_variable_header, puback_header.remaining_length);
 }
 
 // Function to create an MQTT CONNECT packet
