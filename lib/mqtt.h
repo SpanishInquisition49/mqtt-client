@@ -28,27 +28,22 @@ typedef enum {
   QOS_2 = 2,
 } mqtt_qos_t;
 
+/**
+ * MQTT message.
+ *
+ * @brief The MQTT message used for the subscribe handler callback.
+ */
 typedef struct {
-  int socket;
-  char *host;
-  int port;
-  char *client_id;
-  char *username;
-  char *password;
-  int subscribed_topics;
-  char **topics;
-  unsigned char qos;
-  unsigned char retain;
-  unsigned char clean_session;
-  unsigned short keep_alive;
-  // will
-  char *will_topic;
-  char *will_message;
-  unsigned char will_qos;
-  unsigned char will_retain;
-  // packet
-  unsigned short last_packet_id;
-} mqtt_client_t;
+  char *topic;
+  char *message;
+} mqtt_message_t;
+
+/**
+ * MQTT subscribe handler callback.
+ *
+ * @brief The MQTT subscribe handler callback.
+ */
+typedef void (*mqtt_subscribe_handler_t)(mqtt_message_t *message);
 
 /**
  * Create a new MQTT client.
@@ -69,13 +64,12 @@ typedef struct {
  * @return The MQTT client
  * @return NULL if the client could not be created
  */
-mqtt_client_t *mqtt_client_create(char *host, int port, char *client_id,
-                                  char *username, char *password,
-                                  unsigned char qos, unsigned char retain,
-                                  unsigned char clean_session,
-                                  unsigned short keep_alive, char *will_topic,
-                                  char *will_message, unsigned char will_qos,
-                                  unsigned char will_retain);
+void *mqtt_client_create(char *host, int port, char *client_id, char *username,
+                         char *password, unsigned char qos,
+                         unsigned char retain, unsigned char clean_session,
+                         unsigned short keep_alive, char *will_topic,
+                         char *will_message, unsigned char will_qos,
+                         unsigned char will_retain);
 
 /**
  * Connect to the MQTT broker.
@@ -85,15 +79,41 @@ mqtt_client_t *mqtt_client_create(char *host, int port, char *client_id,
  * wrong MQTT traffic
  * @return MQTT_SUCCESS if the connection was successful, an error code
  */
-connack_reason_code_t mqtt_client_connect(mqtt_client_t *client,
-                                          int send_packet_only);
+connack_reason_code_t mqtt_client_connect(void *client, int send_packet_only);
 
 /**
  * Disconnect from the MQTT broker.
  *
  * @param client The MQTT client
  */
-void mqtt_client_disconnect(mqtt_client_t *client);
+void mqtt_client_disconnect(void *client);
+
+/**
+ * Set the MQTT subscribe handler.
+ *
+ * @brief The MQTT subscribe handler is called when a message is received.
+ * @param client The MQTT client
+ * @param handler The MQTT subscribe handler
+ */
+void mqtt_client_set_subscribe_handler(void *client,
+                                       mqtt_subscribe_handler_t handler);
+
+/**
+ * Start the MQTT client loop.
+ *
+ * @brief The MQTT client loop is started when the client is connected.
+ * @note This function will spawn a new thread.
+ * @param client The MQTT client
+ */
+void mqtt_client_loop(void *client);
+
+/**
+ * Stop the MQTT client loop.
+ * @brief The MQTT client loop is stopped when the client is disconnected.
+ * @note This function is blocking.
+ * @param client The MQTT client
+ */
+void mqtt_client_stop(void *client);
 
 /**
  * Subscribe to a topic.
@@ -102,7 +122,7 @@ void mqtt_client_disconnect(mqtt_client_t *client);
  * @param topic The topic to subscribe to
  * @return MQTT_SUCCESS if the subscription was successful, an error code
  */
-void mqtt_client_subscribe(mqtt_client_t *client, char *topic);
+void mqtt_client_subscribe(void *client, char *topic);
 
 /**
  * Publish a message to a topic.
@@ -112,7 +132,7 @@ void mqtt_client_subscribe(mqtt_client_t *client, char *topic);
  * @param message The message to publish
  * @param qos The QoS level
  */
-void mqtt_client_publish(mqtt_client_t *client, char *topic, char *message,
+void mqtt_client_publish(void *client, char *topic, char *message,
                          unsigned char qos);
 
 /**
@@ -120,6 +140,13 @@ void mqtt_client_publish(mqtt_client_t *client, char *topic, char *message,
  *
  * @param client The MQTT client to destroy
  */
-void mqtt_client_destroy(mqtt_client_t *client);
+void mqtt_client_destroy(void *client);
+
+/**
+ * Destroy a MQTT message.
+ *
+ * @param message The MQTT message to destroy
+ */
+void mqtt_message_destroy(mqtt_message_t *message);
 
 #endif // MQTT_H
