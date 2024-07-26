@@ -11,9 +11,10 @@ Maybe I will improve this shit in the future.
 
 1. Clone the repository
 2. Run `make` to compile the client, you can modify the client code to suit your testing needs.
-3. Run the client with `./mqtt-client <number of clients>` to start the clients
+3. Run the client with `./mqtt-client <number of clients>` to start the clients, if the number is 0 it will subscribe to topic `/test`
 
-This example will start N clients that will connect to the broker and publish a message non-stop.
+This example will start N clients that will connect to the broker and publish a message non-stop
+or start a listener that will print the received messages.
 
 ## Configuration
 
@@ -25,12 +26,12 @@ With this shitty implementation of MQTT protocol, you can:
 
 - Connect to a broker (with anonymous authentication, no TLS)
 - Publish messages
+- Listen for incoming messages
 - Disconnect from the broker
 
 ## TODO
 
 - Implement the QoS levels
-- Implement the subscribe method
 - Implement the keep alive mechanism
 - Implement the last will message
 - Implement the authentication

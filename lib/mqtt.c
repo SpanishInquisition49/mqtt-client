@@ -156,6 +156,7 @@ mqtt_client_t *mqtt_client_create(char *host, int port, char *client_id,
   client->will_message = will_message == NULL ? NULL : strdup(will_message);
   client->will_qos = will_qos;
   client->will_retain = will_retain;
+  client->last_packet_id = 1;
   return client;
 }
 
@@ -246,20 +247,22 @@ void mqtt_client_subscribe(mqtt_client_t *client, char *topic) {
   // Create the SUBSCRIBE packet
   mqtt_fixed_header_t header;
   header.packet_type = PACKET_TYPE_SUBSCRIBE >> 4;
-  header.flags = 0x02;
+  header.flags = 0x02; // they are reserved and the must be set 0010
   header.remaining_length = 0;
-  // create the SUBSCRIBE variable header
+  // create the SUBSCRIBE variable header with the minimum length
   uint8_t variable_header[10];
   int var_header_length = 0;
-  uint16_t packet_id = 1;
+  // Packet id
+  uint16_t packet_id = client->last_packet_id++;
   variable_header[var_header_length++] = packet_id >> 8;
   variable_header[var_header_length++] = packet_id & 0xFF;
-  // create the SUBSCRIBE payload
+  // Payload
   uint8_t payload[1024];
   int payload_length = 0;
   payload_length += write_string(payload + payload_length, topic);
   payload[payload_length++] = 0x00; // QoS
   // Build the packet
+  // Calculate the remaining length
   header.remaining_length = var_header_length + payload_length;
   uint8_t packet[1024];
   int packet_length = 0;

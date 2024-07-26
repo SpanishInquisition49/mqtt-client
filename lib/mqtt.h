@@ -46,6 +46,8 @@ typedef struct {
   char *will_message;
   unsigned char will_qos;
   unsigned char will_retain;
+  // packet
+  unsigned short last_packet_id;
 } mqtt_client_t;
 
 /**
