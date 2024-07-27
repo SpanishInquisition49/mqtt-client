@@ -10,14 +10,14 @@
 
 char *host = "localhost";
 int port = 1883;
-char *username = NULL;
-char *password = NULL;
+char *username = "Pippo";
+char *password = "password";
 unsigned char qos = 0;
 unsigned char retain = 0;
 unsigned char clean_session = 1;
 unsigned short keep_alive = 0;
-char *will_topic = NULL;   //"/crash/client";
-char *will_message = NULL; //"client crashed";
+char *will_topic = "/crash/client";
+char *will_message = "client crashed";
 unsigned char will_qos = 0;
 unsigned char will_retain = 0;
 int random_fd;
@@ -97,11 +97,12 @@ int main(int argc, char *argv[]) {
     mqtt_client_subscribe(client, "/test/2");
     mqtt_client_loop(client);
     while (keep_running) {
-      mqtt_client_publish(client, "/test", "Hello, World!", 0);
+      //mqtt_client_publish(client, "/test", "Hello, World!", 0);
       sleep(1);
     }
     mqtt_client_stop(client);
-    mqtt_client_disconnect(client);
+    mqtt_client_disconnect(client, 1);
+    mqtt_client_destroy(client);
     
   }
 
@@ -139,12 +140,12 @@ void *worker(void *args) {
       sched_yield();
       continue;
     }
-    mqtt_client_publish(client, "/test", buf, 0);
+    mqtt_client_publish(client, "/test", "Hello World!", 0);
     sched_yield();
   }
   dprintf(2, "%s: disconnecting\n", id);
   mqtt_client_stop(client);
-  mqtt_client_disconnect(client);
+  mqtt_client_disconnect(client, 0);
   mqtt_client_destroy(client);
   return NULL;
 }

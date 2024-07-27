@@ -85,8 +85,9 @@ connack_reason_code_t mqtt_client_connect(void *client, int send_packet_only);
  * Disconnect from the MQTT broker.
  *
  * @param client The MQTT client
+ * @param send_will_message Tell the broker to send the will message
  */
-void mqtt_client_disconnect(void *client);
+void mqtt_client_disconnect(void *client, int send_will_message);
 
 /**
  * Set the MQTT subscribe handler.

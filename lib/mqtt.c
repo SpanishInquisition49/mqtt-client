@@ -20,6 +20,7 @@ typedef struct t {
   int qos;
   int retain;
   int suback_received;
+  int packet_id;
   struct t *next;
 } topic_list_t;
 
@@ -226,26 +227,25 @@ void mqtt_client_destroy(void *client) {
     return;
   mqtt_client_t *c = (mqtt_client_t *)client;
   if (c->host != NULL)
-    free(c->host);
+    free((char *)c->host);
   if (c->client_id != NULL)
-    free(c->client_id);
+    free((char *)c->client_id);
   if (c->username != NULL)
-    free(c->username);
+    free((char *)c->username);
   if (c->password != NULL)
-    free(c->password);
+    free((char *)c->password);
   if (c->will_topic != NULL)
-    free(c->will_topic);
+    free((char *)c->will_topic);
   if (c->will_message != NULL)
-    free(c->will_message);
+    free((char *)c->will_message);
   if (c->topics != NULL) {
     topic_list_t *t = c->topics;
     while (t != NULL) {
       topic_list_t *next = t->next;
-      free(t->topic);
+      free((char *)t->topic);
       free(t);
       t = next;
     }
-    free(c->topics);
   }
   free(client);
   client = NULL;
@@ -294,7 +294,7 @@ connack_reason_code_t mqtt_client_connect(void *client, int send_packet_only) {
   return variable_header[1];
 }
 
-void mqtt_client_disconnect(void *client) {
+void mqtt_client_disconnect(void *client, int send_will_message) {
   if (client == NULL)
     return;
   mqtt_client_t *c = (mqtt_client_t *)client;
@@ -302,22 +302,23 @@ void mqtt_client_disconnect(void *client) {
   mqtt_fixed_header_t header;
   header.packet_type = PACKET_TYPE_DISCONNECT >> 4;
   header.flags = 0x00;
-  header.remaining_length = 1;
-  // create the DISCONNECT variable header
-  uint8_t variable_header[10];
+  header.remaining_length = 2;
+  // DISCONNECT variable header
+  unsigned char variable_header[10];
   int var_header_length = 0;
-  // disconnect reason code
-  variable_header[var_header_length++] = 0x00;
+  // Reason code, if send_will_message is 1 then the reason code is 0x04
+  variable_header[var_header_length++] = send_will_message == 1 ? 0x04 : 0x00;
+  variable_header[var_header_length++] = 0x00; // proerty length
   // Build the packet
   uint8_t packet[1024];
+  memset(packet, 0, sizeof(packet));
   int packet_length = 0;
   create_mqtt_fixed_header(header, header.remaining_length, packet,
                            &packet_length);
   memcpy(packet + packet_length, variable_header, var_header_length);
   dprintf(2, "DISCONNECT packet:\n");
   mqtt_print_packet(packet, packet_length + var_header_length);
-  // Send the DISCONNECT packet
-  write(c->socket, &header, sizeof(header));
+  write(c->socket, packet, packet_length + var_header_length);
   close(c->socket);
 }
 
@@ -337,6 +338,8 @@ void mqtt_client_subscribe(void *client, char *topic) {
   uint16_t packet_id = c->last_packet_id++;
   variable_header[var_header_length++] = packet_id >> 8;
   variable_header[var_header_length++] = packet_id & 0xFF;
+  // proerty length
+  variable_header[var_header_length++] = 0x00;
   // Payload
   uint8_t payload[1024];
   int payload_length = 0;
@@ -363,6 +366,7 @@ void mqtt_client_subscribe(void *client, char *topic) {
   t->qos = 0;
   t->retain = 0;
   t->suback_received = 0;
+  t->packet_id = packet_id;
   t->next = c->topics;
   c->topics = t;
 }
@@ -388,6 +392,8 @@ void mqtt_client_publish(void *client, char *topic, char *message,
     variable_header[var_header_length++] = packet_id >> 8;
     variable_header[var_header_length++] = packet_id & 0xFF;
   }
+  // proerty length
+  variable_header[var_header_length++] = 0x00;
   // Payload
   uint8_t payload[1024];
   memset(payload, 0, sizeof(payload));
@@ -427,7 +433,7 @@ int create_mqtt_connect_packet(mqtt_client_t *client, uint8_t *packet) {
   // Variable header
   var_header_length += write_string(variable_header + var_header_length,
                                     "MQTT");   // Protocol name
-  variable_header[var_header_length++] = 0x04; // Protocol version
+  variable_header[var_header_length++] = 0x05; // Protocol version
 
   // Connect flags
   uint8_t connect_flags = 0x00;
@@ -448,14 +454,16 @@ int create_mqtt_connect_packet(mqtt_client_t *client, uint8_t *packet) {
     connect_flags |= 0x02; // Clean session flag
   }
   variable_header[var_header_length++] = connect_flags;
-
+  // Keep alive
   variable_header[var_header_length++] = client->keep_alive >> 8;
   variable_header[var_header_length++] = client->keep_alive & 0xFF;
-
+  // proerty length
+  variable_header[var_header_length++] = 0x00;
   // Payload
   payload_length += write_string(payload + payload_length, client->client_id);
   if (client->will_topic != NULL && client->will_message != NULL) {
-    payload[payload_length++] = 0x00; // will properties length
+    // will properties
+    payload[payload_length++] = 0x00;
     payload_length +=
         write_string(payload + payload_length, client->will_topic);
     payload_length +=
@@ -654,7 +662,7 @@ void *mqtt_client_main_loop(void *args) {
     sched_yield();
   }
   dprintf(2, "Main loop finished\n");
-  return NULL;
+  pthread_exit(NULL);
 }
 
 void handle_incoming_publish(mqtt_client_t *client, unsigned char *packet) {
@@ -665,29 +673,37 @@ void handle_incoming_publish(mqtt_client_t *client, unsigned char *packet) {
   int qos = (header.flags >> 1) & 0x03;
   int offset = 2;
   // Variable header
+  // proerty length
+  uint16_t property_length = packet[offset];
+  offset += 1 + property_length;
+
   mqtt_string_t topic;
   topic.length = (packet[2] << 8) | (packet[3] & 0xFF);
-  topic.data = malloc(topic.length + 1);
+  topic.data = calloc(1, topic.length + 1);
+  if (topic.data == NULL) {
+    return;
+  }
   offset += 2;
-  memcpy(topic.data, packet + offset, topic.length);
+
+  memcpy(topic.data, packet + offset, topic.length + 1);
   topic.data[topic.length] = '\0';
   offset += topic.length;
   if (qos > 0) {
     // Packet id
-    //uint16_t packet_id = (packet[offset] << 8) | (packet[offset + 1] & 0xFF);
+    // uint16_t packet_id = (packet[offset] << 8) | (packet[offset + 1] & 0xFF);
     offset += 2;
     // proerty length
-    //uint16_t property_length = (packet[offset] << 8) | (packet[offset + 1] & 0xFF);
+    // uint16_t property_length = (packet[offset] << 8) | (packet[offset + 1] &
+    // 0xFF);
     offset += 2;
   }
-  
-  // Payload, the message, is the remaining data
-  // The message length is the remaining length minus the topic length
-  // minus the offset bytes + 2 bytes for the topic length
+
+  // Payload, the message, is the remaining data, the length is the remaining
+  // length minus the topic length The message must be freed by the handler
   mqtt_string_t message;
   message.length = header.remaining_length - topic.length;
   message.data = calloc(1, message.length + 1);
-  memcpy(message.data, packet + offset, message.length);
+  memcpy(message.data, packet + offset, message.length - 2);
   message.data[message.length] = '\0';
   // Print only the message as bytes using the packet and the offset
   // Call the subscribe handler
@@ -701,7 +717,6 @@ void handle_incoming_publish(mqtt_client_t *client, unsigned char *packet) {
 }
 
 void handle_incoming_suback(mqtt_client_t *client, unsigned char *packet) {
-  dprintf(2, "Received SUBACK packet\n");
   // Parse the incoming SUBACK packet
   mqtt_fixed_header_t header;
   header.packet_type = packet[0] >> 4;
@@ -709,14 +724,21 @@ void handle_incoming_suback(mqtt_client_t *client, unsigned char *packet) {
   header.remaining_length = packet[1];
   // Payload
   int index = 2;
+  // Packet id
+  uint16_t packet_id = (packet[index] << 8) | (packet[index + 1] & 0xFF);
+  index += 2;
+  // Propery length
+  int property_length = packet[index++];
+  index += property_length;
+  // Add the fixed header len to the remaining length
+  header.remaining_length += 2;
   while (index < header.remaining_length) {
-    dprintf(2, "Reading QoS level\n");
     // Read the QoS level
     int qos = packet[index++];
     // Update the last topic without a suback
     topic_list_t *t = client->topics;
     while (t != NULL) {
-      if (t->suback_received == 0 && (t->next == NULL || t->next->suback_received == 1)) {
+      if (t->packet_id == packet_id && (t->suback_received == 0)) {
         t->suback_received = 1;
         t->qos = qos;
         dprintf(2, "Subscribed to topic: %s, QoS: %d\n", t->topic, t->qos);
@@ -754,7 +776,7 @@ ssize_t mqtt_read_packet(mqtt_client_t *client, unsigned char **out_packet) {
   }
   // Put the packet in the out_packet variable
   // The packet must be freed by the caller
-  *out_packet = calloc(1, n);
+  *out_packet = calloc(1, n + 1);
   memcpy(*out_packet, buf, n);
   // Add the \0 character to the end of the packet
   (*out_packet)[n] = '\0';
