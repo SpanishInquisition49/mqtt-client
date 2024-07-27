@@ -100,6 +100,7 @@ int main(int argc, char *argv[]) {
       //mqtt_client_publish(client, "/test", "Hello, World!", 0);
       sleep(1);
     }
+    mqtt_client_unsubscribe(client, "/test");
     mqtt_client_stop(client);
     mqtt_client_disconnect(client, 1);
     mqtt_client_destroy(client);

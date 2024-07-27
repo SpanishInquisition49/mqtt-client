@@ -77,6 +77,7 @@ void *mqtt_client_create(char *host, int port, char *client_id, char *username,
  * @param client The MQTT client
  * @param send_packet_only Send only the CONNECT packet, used for generating
  * wrong MQTT traffic
+ * @note This function must be called before the client loop is started.
  * @return MQTT_SUCCESS if the connection was successful, an error code
  */
 connack_reason_code_t mqtt_client_connect(void *client, int send_packet_only);
@@ -121,9 +122,16 @@ void mqtt_client_stop(void *client);
  *
  * @param client The MQTT client
  * @param topic The topic to subscribe to
- * @return MQTT_SUCCESS if the subscription was successful, an error code
  */
 void mqtt_client_subscribe(void *client, char *topic);
+
+/**
+ * Unsubscribe from a topic.
+ *
+ * @param client The MQTT client
+ * @param topic The topic to unsubscribe from
+ */
+void mqtt_client_unsubscribe(void *client, char *topic);
 
 /**
  * Publish a message to a topic.

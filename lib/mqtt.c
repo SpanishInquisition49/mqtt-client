@@ -121,6 +121,7 @@ void *mqtt_client_main_loop(void *args);
 /**
  * Handle the incoming PUBLISH packet.
  *
+ * @brief Call the subscribe handler with the message
  * @param client The MQTT client
  * @param packet The MQTT packet
  */
@@ -129,10 +130,20 @@ void handle_incoming_publish(mqtt_client_t *client, unsigned char *packet);
 /**
  * Handle the incoming SUBACK packet.
  *
+ * @brief Set the granted QoS level for the subscribed topic and set the acknowledge flag
  * @param client The MQTT client
  * @param packet The MQTT packet
  */
 void handle_incoming_suback(mqtt_client_t *client, unsigned char *packet);
+
+/**
+ * Handle the incoming UNSUBACK packet.
+ * 
+ * @brief Remove the topic from the subscribed topics list
+ * @param client The MQTT client
+ * @param packet The MQTT packet
+ */
+void handle_incoming_unsuback(mqtt_client_t *client, unsigned char *packet);
 
 /**
  * Read the MQTT fixed header.
@@ -369,6 +380,50 @@ void mqtt_client_subscribe(void *client, char *topic) {
   t->packet_id = packet_id;
   t->next = c->topics;
   c->topics = t;
+}
+
+void mqtt_client_unsubscribe(void *client, char *topic) {
+  if (client == NULL)
+    return;
+  mqtt_client_t *c = (mqtt_client_t *)client;
+  // Create the UNSUBSCRIBE packet
+  mqtt_fixed_header_t header;
+  header.packet_type = PACKET_TYPE_UNSUBSCRIBE >> 4;
+  header.flags = 0x02; // they are reserved and the must be set 0010
+  // Packet id
+  uint16_t packet_id = c->last_packet_id++;
+  // Create the UNSUBSCRIBE variable header
+  uint8_t variable_header[10];
+  int var_header_length = 0;
+  variable_header[var_header_length++] = packet_id >> 8;
+  variable_header[var_header_length++] = packet_id & 0xFF;
+  // proerty length
+  variable_header[var_header_length++] = 0x00;
+  // Payload
+  uint8_t payload[1024];
+  int payload_length = 0;
+  payload_length += write_string(payload + payload_length, topic);
+  // Build the packet
+  header.remaining_length = var_header_length + payload_length;
+  uint8_t packet[1024];
+  int packet_length = 0;
+  create_mqtt_fixed_header(header, header.remaining_length, packet,
+                           &packet_length);
+  memcpy(packet + packet_length, variable_header, var_header_length);
+  memcpy(packet + packet_length + var_header_length, payload, payload_length);
+  dprintf(2, "UNSUBSCRIBE packet:\n");
+  mqtt_print_packet(packet, packet_length + var_header_length + payload_length);
+  // Send the UNSUBSCRIBE packet
+  write(c->socket, packet, packet_length + var_header_length + payload_length);
+  // Set the packet id of topic in the list to match the one in the UNSUBSCRIBE packet
+  topic_list_t *t = c->topics;
+  while (t != NULL) {
+    if (strcmp(t->topic, topic) == 0) {
+      t->packet_id = packet_id;
+      break;
+    }
+    t = t->next;
+  }
 }
 
 void mqtt_client_publish(void *client, char *topic, char *message,
@@ -653,6 +708,11 @@ void *mqtt_client_main_loop(void *args) {
       mqtt_print_packet(packet, n);
       handle_incoming_suback(client, packet);
       break;
+    case PACKET_TYPE_UNSUBACK:
+      dprintf(2, "Received UNSUBACK packet\n");
+      mqtt_print_packet(packet, n);
+      handle_incoming_unsuback(client, packet);
+      break;
     default:
       dprintf(2, "Unknown packet type: %d\n", packet_type);
       break;
@@ -746,6 +806,42 @@ void handle_incoming_suback(mqtt_client_t *client, unsigned char *packet) {
       }
       t = t->next;
     }
+  }
+}
+
+void handle_incoming_unsuback(mqtt_client_t *client, unsigned char *packet) {
+  // Parse the incoming UNSUBACK packet
+  mqtt_fixed_header_t header;
+  header.packet_type = packet[0] >> 4;
+  header.flags = packet[0] & 0x0F;
+  header.remaining_length = packet[1];
+  // Payload
+  int index = 2;
+  // Packet id
+  uint16_t packet_id = (packet[index] << 8) | (packet[index + 1] & 0xFF);
+  index += 2;
+  // Propery length
+  int property_length = packet[index++];
+  index += property_length;
+  // Add the fixed header len to the remaining length
+  header.remaining_length += 2;
+  // Remove the topic from the subscribed topics list
+  topic_list_t *t = client->topics;
+  topic_list_t *prev = NULL;
+  while (t != NULL) {
+    if (t->packet_id == packet_id) {
+      if (prev == NULL) {
+        client->topics = t->next;
+      } else {
+        prev->next = t->next;
+      }
+      dprintf(2, "Unsubscribed from topic: %s\n", t->topic);
+      free((char *)t->topic);
+      free(t);
+      break;
+    }
+    prev = t;
+    t = t->next;
   }
 }
 

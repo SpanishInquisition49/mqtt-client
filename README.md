@@ -36,7 +36,8 @@ With this shitty implementation of MQTT protocol, you can:
 
 - Connect to a broker (with anonymous authentication, no TLS)
 - Publish messages
-- Listen for incoming messages
+- Listen for incoming messages on different topics
+- Unsubscribe from topics
 - Disconnect from the broker
 
 ## TODO
