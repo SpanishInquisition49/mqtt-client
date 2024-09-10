@@ -774,6 +774,10 @@ void handle_incoming_publish(mqtt_client_t *client, unsigned char *packet) {
   if (client->subscribe_handler != NULL) {
     client->subscribe_handler(&mqtt_message);
   }
+  else {
+    // No subscribe handler is set, destroy the message
+    mqtt_message_destroy(&mqtt_message);
+  }
 }
 
 void handle_incoming_suback(mqtt_client_t *client, unsigned char *packet) {
